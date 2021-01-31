@@ -1,0 +1,67 @@
+实战：插入式注解处理器
+Java的编译优化部分在本书中并没有像前面两部分那样设置独立的、整章篇幅的实战，因为我们开发程序，考虑的主要还是程序会如何运行，较少会涉及针对程序编译的特殊需求。
+但是笔者丝毫不认为相对于前两部分介绍的内存管理子系统和字节码执行子系统，编译子系统就 不那么重要了。
+一套编程语言中编译子系统的优劣，很大程度上决定了程序运行性能的好坏和编码效率的高低，尤其在Java语言中，运行期即时编译与虚拟机执行子系统非常紧密地互相依赖、配合运作。
+了解JDK如何编译和优化代码，有助于我们写出适合Java 虚拟机自优化的程序。
+
+实战目标：
+通过阅读Javac编译器的源码，我们知道前端编译器在把Java程序源码编译为字节码的时候，会对Java程序源码做各方面的检查校验。
+这些校验主要是以程序“写得对不对”为出发点，虽然也会产生一 些警告和提示类的信息，但总体来讲还是较少去校验程序“写得好不好”。
+有鉴于此，业界出现了许多 针对程序“写得好不好”的辅助校验工具，如CheckStyle、FindBug、Klocwork等。
+这些代码校验工具有一些是基于Java的源码进行校验，有一些是通过扫描字节码来完成，在本节的实战中，我们将会使用注解处理器API来编写一款拥有自己编码风格的校验工具：NameCheckProcessor。
+
+Java程序命名推荐（而不是强制）应当符合下列格式的书写规范。
+·类（或接口）：符合驼式命名法，首字母大写。
+·方法：符合驼式命名法，首字母小写。
+·字段：
+    ■类或实例变量。符合驼式命名法，首字母小写。
+    ■常量。要求全部由大写字母或下划线构成，并且第一个字符不能是下划线。
+上文提到的驼式命名法（Camel Case Name），正如它的名称所表示的那样，是指混合使用大小写字母来分割构成变量或函数的名字，犹如驼峰一般，这是当前Java语言中主流的命名规范，我们的实战目标就是为Javac编译器添加一个额外的功能，在编译程序时检查程序名是否符合上述对类（或接 口）、方法、字段的命名要求。
+
+代码实现：
+要通过注解处理器API实现一个编译器插件，首先需要了解这组API的一些基本知识。
+我们实现注解处理器的代码需要继承抽象类javax.annotation.processing.AbstractProcessor，这个抽象类中只有一个子类必须实现的抽象方法：“process()”，它是Javac编译器在执行注解处理器代码时要调用的过程，我们可以从这个方法的第一个参数“annotations”中获取到此注解处理器所要处理的注解集合，从第二个参数“roundEnv”中访问到当前这个轮次（Round）中的抽象语法树节点，每个语法树节点在这里都表示为一个Element。
+在javax.lang.model.ElementKind中定义了18类Element，已经包括了Java代码中可能出现的全部元素，如：“包（PACKAGE）、枚举（ENUM）、类（CLASS）、注解 （ANNOTATION_TYPE）、接口（INTERFACE）、枚举值（ENUM_CONSTANT）、字段 （FIELD）、参数（PARAMETER）、本地变量（LOCAL_VARIABLE）、异常 （EXCEPTION_PARAMETER）、方法（METHOD）、构造函数（CONSTRUCTOR）、静态语句块 （STATIC_INIT，即static{}块）、实例语句块（INSTANCE_INIT，即{}块）、参数化类型 （TYPE_PARAMETER，泛型尖括号内的类型）、资源变量（RESOURCE_VARIABLE，try-resource 中定义的变量）、模块（MODULE）和未定义的其他语法树节点（OTHER）”。
+除了process()方法的 传入参数之外，还有一个很重要的实例变量“processingEnv”，它是AbstractProcessor中的一个protected 变量，在注解处理器初始化的时候（init()方法执行的时候）创建，继承了AbstractProcessor的注解处理 器代码可以直接访问它。它代表了注解处理器框架提供的一个上下文环境，要创建新的代码、向编译 器输出信息、获取其他工具类等都需要用到这个实例变量。 注解处理器除了process()方法及其参数之外，还有两个经常配合着使用的注解，分别是： @SupportedAnnotationTypes和@SupportedSourceVersion，前者代表了这个注解处理器对哪些注解感兴趣，可以使用星号“*”作为通配符代表对所有的注解都感兴趣，后者指出这个注解处理器可以处理哪些版本的Java代码。
+每一个注解处理器在运行时都是单例的，如果不需要改变或添加抽象语法树中的内容，process()方法就可以返回一个值为false的布尔值，通知编译器这个轮次中的代码未发生变化，无须构造新的 JavaCompiler实例，在这次实战的注解处理器中只对程序命名进行检查，不需要改变语法树的内容，因此process()方法的返回值一律都是false。
+
+运行与测试:
+我们可以通过Javac命令的“-processor”参数来执行编译时需要附带的注解处理器，如果有多个注解处理器的话，用逗号分隔。还可以使用-XprintRounds和-XprintProcessorInfo参数来查看注解处理器运作的详细信息。
+
+javac -encoding UTF-8 NameChecker.java
+javac -encoding UTF-8 NameCheckProcessor.java
+javac -processor NameCheckProcessor BADLY_NAMED_CODE.java
+
+结果：
+警告: 来自注释处理程序 'NameCheckProcessor' 的受支持 source 版本 'RELEASE_14' 低于 -source '15'
+BADLY_NAMED_CODE.java:1: 警告: 名称“BADLY_NAMED_CODE”应当符合驼式命名法（Camel Case Names）
+public class BADLY_NAMED_CODE {
+       ^
+BADLY_NAMED_CODE.java:2: 警告: 名称“colors”应当以大写字母开头
+    enum colors {red, blue, green;}
+    ^
+BADLY_NAMED_CODE.java:2: 警告: 常量“red”应当全部以大写字母或下划线命名，并且以字母开头
+    enum colors {red, blue, green;}
+                 ^
+BADLY_NAMED_CODE.java:2: 警告: 常量“blue”应当全部以大写字母或下划线命名，并且以字母开头
+    enum colors {red, blue, green;}
+                      ^
+BADLY_NAMED_CODE.java:2: 警告: 常量“green”应当全部以大写字母或下划线命名，并且以字母开头
+    enum colors {red, blue, green;}
+                            ^
+BADLY_NAMED_CODE.java:4: 警告: 常量“_FORTY_TWO”应当全部以大写字母或下划线命名，并且以字母开头
+    static final int _FORTY_TWO = 42;
+                     ^
+BADLY_NAMED_CODE.java:5: 警告: 名称“NOT_A_CONSTANT”应当以小写字母开头
+    public static int NOT_A_CONSTANT = _FORTY_TWO;
+                      ^
+BADLY_NAMED_CODE.java:7: 警告: 一个普通方法 “BADLY_NAMED_CODE”不应当与类名重复，避免与构造函数产生混淆
+    protected void BADLY_NAMED_CODE() {
+                   ^
+BADLY_NAMED_CODE.java:7: 警告: 名称“BADLY_NAMED_CODE”应当以小写字母开头
+    protected void BADLY_NAMED_CODE() {
+                   ^
+BADLY_NAMED_CODE.java:11: 警告: 名称“NOTcamelCASEmethodNAME”应当以小写字母开头
+    public void NOTcamelCASEmethodNAME() {
+                ^
+11 个警告
